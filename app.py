@@ -2,181 +2,143 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import matplotlib
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
 
-# --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Anadihilo Universal Tracer", layout="wide", page_icon="🛰️")
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="Anadihilo Scientific Tracer", layout="wide", page_icon="🔭")
 
-# --- CUSTOM CSS (Frame & Button Visibility) ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    .stApp { background-color: #000000; color: #ffffff; }
-    /* Play Button High Contrast - Placed Below Graph */
+    .stApp { background-color: #0e1117; color: #e0e0e0; }
     .updatemenu-button {
         background-color: #ffffff !important;
         color: #000000 !important;
         border: 2px solid #00e5ff !important;
         font-weight: bold;
     }
+    .stTabs [aria-selected="true"] { background-color: #00e5ff; color: #000; font-weight: bold; }
     header {visibility: hidden;} footer {visibility: hidden;}
-    .block-container {padding-top: 1rem;}
-    /* Container to help with 3:4 or centered look */
-    .plot-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🌌 ANADIHILO UNIVERSAL TRACER")
-st.caption("Deterministic Handover Engine | Persistent Camera 3D")
+st.title("🔭 ANADIHILO SCIENTIFIC TRACER")
 
-# --- CONFIGURATION (EXPANDER) ---
-with st.expander("⚙️ SYSTEM CONFIGURATION", expanded=True):
-    c_scale, c_steps = st.columns(2)
-    with c_scale:
-        scale_mode = st.radio("Coordinate Scale:", ["AU Scale (Solar System)", "Custom/Default Grid"])
-    with c_steps:
-        steps = st.slider("Simulation Steps", 10000, 100000, 50000, step=5000)
-    
+# --- INPUTS (EXPANDER) ---
+with st.expander("⚙️ CONFIGURE SYSTEM (Click to Expand)", expanded=True):
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        scale_mode = st.radio("Coordinate Scale:", ["AU Scale", "Custom Scale"])
+    with col_b:
+        input_type = st.radio("Input Unit:", ["Mass Intensity (Dg)", "Systemic Boundary (n)"])
+    with col_c:
+        steps = st.slider("Steps", 5000, 50000, 15000)
+
     st.markdown("---")
-    input_type = st.radio("Input Logic:", ["Mass Intensity (Dg)", "Systemic Boundary (n)"], horizontal=True)
     
-    col1, col2, col3 = st.columns(3)
-    
-    def get_input(label, key, def_dg, def_x, def_vy):
+    # Scale Constants
+    is_au = scale_mode == "AU Scale"
+    K_CONST = 3.98e14 if is_au else 1.0
+    DT_VAL = 3600 if is_au else 0.002
+
+    def get_val(label, key, def_dg, def_x, def_vy):
         st.markdown(f"**{label}**")
+        # P/n Logic
         if input_type == "Systemic Boundary (n)":
-            n_val = st.number_input(f"n (m)", value=float(def_dg * 0.8), format="%.2e", key=f"n_{key}")
-            dg_val = n_val / 0.8
+            n_in = st.number_input(f"n (m)", value=float(def_dg*0.8), format="%.2e", key=f"n{key}")
+            p_out = n_in / 0.8
         else:
-            dg_val = st.number_input(f"P (Dg)", value=float(def_dg), format="%.2f", key=f"dg_{key}")
+            p_out = st.number_input(f"P (Dg)", value=float(def_dg), key=f"p{key}")
         
-        x_init = def_x if scale_mode == "AU Scale (Solar System)" else (def_x / 1e11)
-        v_init = def_vy if scale_mode == "AU Scale (Solar System)" else (def_vy / 30000)
-        
-        x = st.number_input(f"X Pos", value=float(x_init), format="%.2e", key=f"x_{key}")
-        vy = st.number_input(f"Y Vel", value=float(v_init), format="%.2f", key=f"v_{key}")
-        return dg_val, x, vy
+        # X/Vy Logic (Custom scale allows full edit)
+        x_out = st.number_input(f"X Pos", value=float(def_x if is_au else 1.0), format="%.2e", key=f"x{key}")
+        v_out = st.number_input(f"Y Vel", value=float(def_vy if is_au else 0.0), format="%.2f", key=f"v{key}")
+        return p_out, x_out, v_out
 
-    p1, x1, vy1 = get_input("Body 1 (Sun)", "b1", 1480000.0, 0.0, 0.0)
-    p2, x2, vy2 = get_input("Body 2 (Earth)", "b2", 4.44, 1.496e11, 29780.0)
-    p3, x3, vy3 = get_input("Body 3 (Moon)", "b3", 0.054, 1.49984e11, 30802.0)
+    c1, c2, c3 = st.columns(3)
+    with c1: p1, x1, v1 = get_val("Body 1 (Sun)", "1", 1480000.0, 0.0, 0.0)
+    with c2: p2, x2, v2 = get_val("Body 2 (Earth)", "2", 4.44, 1.496e11, 29780.0)
+    with c3: p3, x3, v3 = get_val("Body 3 (Moon)", "3", 0.054, 1.49984e11, 30802.0)
 
-# --- PHYSICS ENGINE (STRICT ANADIHILO LOGIC) ---
+# --- PHYSICS ---
 @st.cache_data
-def run_anadihilo(steps, scale_mode, p1, p2, p3, x2, vy2, x3, vy3):
-    K = 3.98e14 if scale_mode == "AU Scale (Solar System)" else 1.0
-    DT = 3600 if scale_mode == "AU Scale (Solar System)" else 0.002
-    
+def run_sim(steps, p1, p2, p3, x1, x2, x3, v1, v2, v3, K, DT):
     P = np.array([p1, p2, p3])
-    pos_hist = np.zeros((steps, 3, 3))
-    curr_p = np.array([[0.0,0,0], [x2,0,0], [x3,0,0]], dtype=float)
-    curr_v = np.array([[0.0,0,0], [0,vy2,0], [0,vy3,0]], dtype=float)
+    pos = np.array([[x1,0,0], [x2,0,0], [x3,0,0]], dtype=float)
+    vel = np.array([[0,v1,0], [0,v2,0], [0,v3,0]], dtype=float)
     
-    for s in range(steps):
-        pos_hist[s] = curr_p
-        
-        # Handover Logic
-        eff_P = P.copy()
-        parents = [-1, -1, -1]
-        dist_em = np.linalg.norm(curr_p[1] - curr_p[2])
-        if dist_em < (1.0e10 if scale_mode == "AU Scale (Solar System)" else 0.5):
-            eff_P[2] = P[1] 
-            parents[2] = 1
+    h_pos = np.zeros((steps, 3, 3))
+    h_vel = np.zeros((steps, 3))
+    h_acc = np.zeros((steps, 3))
 
-        acc = np.zeros_like(curr_p)
+    for s in range(steps):
+        h_pos[s] = pos
+        acc = np.zeros_like(pos)
+        
+        # Handover
+        eff_P = P.copy()
+        parents = [-1]*3
+        for i in range(3):
+            for j in range(3):
+                if i != j and P[j] > P[i]:
+                    if np.linalg.norm(pos[i]-pos[j]) < (1e10 if K > 1 else 0.5):
+                        eff_P[i], parents[i] = P[j], j
+
+        # Forces (Strict PDF)
         for j in range(3):
             net = np.zeros(3)
             for k in range(3):
                 if j == k: continue
-                r_vec = curr_p[k] - curr_p[j]
-                r_sq = np.sum(r_vec**2)
-                eps = 1.0 / (P[j] + P[k]) # Singularity Resolution
-                term = P[k] / (r_sq + eps)
-                net += term * (r_vec / (np.sqrt(r_sq) + 1e-18))
+                r_vec = pos[k] - pos[j]
+                r_mag = np.linalg.norm(r_vec)
+                eps = 1.0 / (P[j] + P[k])
+                net += (P[k]/(r_mag**2 + eps)) * (r_vec/(r_mag + 1e-18))
             
             fric = P[j] if parents[j] == k else eff_P[j]
-            acc[j] = (K / fric) * net
-            
-        curr_v += acc * DT
-        curr_p += curr_v * DT
-    return pos_hist
-
-# --- EXECUTION ---
-if st.button("🚀 EXECUTE DYNAMICS"):
-    with st.spinner("Processing Anadihilo Grid..."):
-        history = run_anadihilo(steps, scale_mode, p1, p2, p3, x2, vy2, x3, vy3)
+            acc[j] = (K/fric) * net
         
-        # Downsampling for performance
+        vel += acc * DT
+        pos += vel * DT
+        for b in range(3):
+            h_vel[s,b], h_acc[s,b] = np.linalg.norm(vel[b]), np.linalg.norm(acc[b])
+            
+    return h_pos, h_vel, h_acc
+
+# --- UI EXECUTION ---
+if st.button("🚀 EXECUTE SCIENTIFIC TRACER", use_container_width=True):
+    h_pos, h_vel, h_acc = run_sim(steps, p1, p2, p3, x1, x2, x3, v1, v2, v3, K_CONST, DT_VAL)
+    
+    t1, t2, t3 = st.tabs(["🌌 3D Animation", "📊 2D Dashboard", "💾 Logs"])
+    
+    with t1:
         skip = max(1, steps // 400)
-        anim_data = history[::skip]
-        
         fig = go.Figure()
-        colors = ['#ffcc00', '#0099ff', '#aaaaaa']
-        names = ['Sun', 'Earth', 'Moon']
+        cols = ['#ffcc00', '#0099ff', '#aaaaaa']
+        names = ["Sun", "Earth", "Moon"]
         
-        # 1-3: Path Traces (Static)
         for i in range(3):
-            fig.add_trace(go.Scatter3d(
-                x=history[:,i,0], y=history[:,i,1], z=history[:,i,2],
-                mode='lines', name=f'{names[i]} Path',
-                line=dict(color=colors[i], width=2), opacity=0.3
-            ))
-        
-        # 4-6: Markers (Animated)
-        for i in range(3):
-            fig.add_trace(go.Scatter3d(
-                x=[anim_data[0,i,0]], y=[anim_data[0,i,1]], z=[anim_data[0,i,2]],
-                mode='markers', name=names[i],
-                marker=dict(color=colors[i], size=[15, 8, 5][i])
-            ))
-            
-        # Frames Fix: Explicitly defining data for traces 3, 4, 5
-        frames = []
-        for k in range(len(anim_data)):
-            frames.append(go.Frame(
-                data=[
-                    go.Scatter3d(x=[anim_data[k,0,0]], y=[anim_data[k,0,1]], z=[anim_data[k,0,2]]),
-                    go.Scatter3d(x=[anim_data[k,1,0]], y=[anim_data[k,1,1]], z=[anim_data[k,1,2]]),
-                    go.Scatter3d(x=[anim_data[k,2,0]], y=[anim_data[k,2,1]], z=[anim_data[k,2,2]])
-                ],
-                traces=[3, 4, 5],
-                name=f"f{k}"
-            ))
-        
-        fig.frames = frames
-        
-        fig.update_layout(
-            scene=dict(
-                bgcolor="black", 
-                xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False),
-                aspectmode='data'
-            ),
-            paper_bgcolor="black",
-            height=700, # Frame size control
-            margin=dict(l=0, r=0, b=0, t=0),
-            uirevision='constant', # Keeps zoom/rotate persistent
-            updatemenus=[dict(
-                type="buttons", showactive=False,
-                x=0.5, y=-0.05, xanchor="center",
-                buttons=[dict(
-                    label="▶ PLAY / PAUSE", 
-                    method="animate", 
-                    args=[None, dict(frame=dict(duration=30, redraw=True), fromcurrent=True, mode="immediate")]
-                )]
-            )]
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # CSV Log
-        df_out = pd.DataFrame({'Step': np.arange(0, steps, skip)})
-        for i in range(3):
-            df_out[f'{names[i]}_X'] = anim_data[:,i,0]
-            df_out[f'{names[i]}_Y'] = anim_data[:,i,1]
-        st.download_button("📥 Download Trajectory CSV", df_out.to_csv(index=False).encode('utf-8'), "anadihilo_physics.csv")
+            fig.add_trace(go.Scatter3d(x=h_pos[:,i,0], y=h_pos[:,i,1], z=h_pos[:,i,2], mode='lines', line=dict(color=cols[i], width=3), name=names[i]))
+            fig.add_trace(go.Scatter3d(x=[h_pos[0,i,0]], y=[h_pos[0,i,1]], z=[h_pos[0,i,2]], mode='markers', marker=dict(color=cols[i], size=[15,8,5][i])))
 
-else:
-    st.info("Execute dynamics to view the 3D orbital tracer. Rotate and zoom to explore from any angle.")
+        frames = [go.Frame(data=[go.Scatter3d(x=[h_pos[k,i,0]], y=[h_pos[k,i,1]], z=[h_pos[k,i,2]]) for i in range(3)], traces=[3,4,5]) for k in range(0, steps, skip)]
+        fig.frames = frames
+        fig.update_layout(scene=dict(bgcolor="black", xaxis_visible=False, yaxis_visible=False, zaxis_visible=False),
+                          paper_bgcolor="black", margin=dict(l=0,r=0,b=0,t=0), height=600, uirevision='constant',
+                          updatemenus=[dict(type="buttons", x=0.5, y=-0.05, buttons=[dict(label="▶ PLAY / PAUSE", method="animate", args=[None, dict(frame=dict(duration=30, redraw=True), fromcurrent=True)])])])
+        st.plotly_chart(fig, use_container_width=True)
+
+    with t2:
+        fig_mpl, axes = plt.subplots(2, 1, figsize=(10, 8), facecolor='#0e1117')
+        for i in range(3):
+            axes[0].plot(h_pos[:,i,0], h_pos[:,i,1], color=['red','blue','teal'][i], label=names[i])
+            axes[1].plot(h_vel[:,i], color=['red','blue','teal'][i])
+        axes[0].set_title("Trajectory Map", color='white'); axes[1].set_title("Velocity Profile", color='white')
+        for ax in axes: ax.set_facecolor('#0e1117'); ax.tick_params(colors='white'); ax.grid(alpha=0.2); ax.legend()
+        st.pyplot(fig_mpl)
+
+    with t3:
+        df = pd.DataFrame({'Step': range(steps), 'Sun_X': h_pos[:,0,0], 'Earth_X': h_pos[:,1,0], 'Moon_X': h_pos[:,2,0]})
+        st.download_button("Download CSV", df.to_csv(index=False).encode('utf-8'), "anadihilo_log.csv")
