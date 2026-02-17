@@ -158,6 +158,9 @@ if st.button("🚀 EXECUTE SCIENTIFIC TRACER", use_container_width=True):
     with st.spinner("Processing N-Body Dynamics..."):
         h_pos, h_vel, h_acc = run_simulation(steps, p1, p2, x2, vy2, p3, x3, vy3)
         
+        # Define P_vals explicitly for plotting scope (This fixes the NameError)
+        P_vals = [p1, p2, p3] 
+        
         # Tabs
         tab1, tab2, tab3 = st.tabs(["🌌 Interactive Animation", "📈 Scientific Analysis", "💾 Data Logs"])
         
@@ -241,6 +244,7 @@ if st.button("🚀 EXECUTE SCIENTIFIC TRACER", use_container_width=True):
             ax1.set_facecolor('#0e1117')
             
             for i in range(3):
+                # P_vals is now correctly defined above
                 ax1.plot(h_pos[:, i, 0], h_pos[:, i, 1], color=mpl_colors[i], label=f"{mpl_names[i]} (P={P_vals[i]})", linewidth=2)
                 # Final Position Circle
                 circ = Circle((h_pos[-1, i, 0], h_pos[-1, i, 1]), radius=np.max(h_pos)*0.02, color=mpl_colors[i], alpha=0.8)
