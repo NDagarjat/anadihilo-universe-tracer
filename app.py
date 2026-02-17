@@ -5,309 +5,219 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
-# --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Anadihilo Scientific Tracer", layout="wide", page_icon="🔭")
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="Anadihilo Core", layout="wide", page_icon="🛰️")
 
-# --- CUSTOM CSS (Visibility Fix) ---
+# --- CSS FOR UI & PERFORMANCE ---
 st.markdown("""
 <style>
-    /* Main Background */
-    .stApp { background-color: #0e1117; color: #e0e0e0; }
+    .stApp { background-color: #000000; color: #e0e0e0; }
     
-    /* Play Button & Widget High Contrast */
+    /* Play Button Container - Moved Down */
     .updatemenu-button {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 1px solid #00e5ff !important;
+        background-color: #00e5ff !important;
+        color: #000 !important;
+        border-radius: 5px;
         font-weight: bold;
     }
-    .updatemenu-item-text { color: #000 !important; }
     
-    /* Streamlit Button Styling */
+    /* Streamlit widgets */
     div.stButton > button { 
-        background-color: #00e5ff; color: #000; font-weight: bold; border: none;
+        width: 100%; border: 1px solid #00e5ff; color: #00e5ff; background: transparent;
     }
-    div.stButton > button:hover { background-color: #ffffff; }
+    div.stButton > button:hover { background-color: #00e5ff; color: #000; }
     
-    /* Headers */
-    h1, h2, h3 { color: #00e5ff !important; font-family: 'Courier New', monospace; }
-    
-    /* Hide Streamlit Default Elements */
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
+    /* Hide extra elements */
+    header {visibility: hidden;} footer {visibility: hidden;}
     .block-container {padding-top: 1rem;}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🔭 ANADIHILO SCIENTIFIC TRACER")
-st.markdown("**Status:** Ready | **Visualization:** Combined N-Body System | **Logic:** User Defined")
+st.title("🛰️ ANADIHILO DYNAMICS: SCIENTIFIC TRACER")
+st.markdown("**Logic:** Strict PDF Implementation ($a_j = K/P_{eff} \dots$) | **Performance:** Optimized for Mobile")
 
-# --- INPUTS (EXPANDER) ---
-with st.expander("⚙️ CONFIGURE SYSTEM PARAMETERS (Click to Expand)", expanded=True):
+# --- SETTINGS (EXPANDER) ---
+with st.expander("⚙️ CONFIGURE PHYSICS (Click to Expand)", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
-        steps = st.slider("Simulation Steps", 5000, 50000, 15000)
+        steps = st.slider("Physics Accuracy (Steps)", 5000, 30000, 15000)
     with col2:
-        speed = st.select_slider("Animation Speed", options=["Precision", "Normal", "Hyper"], value="Normal")
-    
+        speed = st.select_slider("Animation Speed", options=["Slow", "Normal", "Fast"], value="Normal")
+
     st.markdown("---")
     
     # Body Inputs
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown("🟡 **Core 1 (Sun)**")
+        st.markdown("🟡 **Sun**")
         p1 = st.number_input("P (Dg)", value=1480000.0, key="p1")
-        # Sun is anchor at 0,0
-    
     with c2:
-        st.markdown("🔵 **Core 2 (Earth)**")
+        st.markdown("🔵 **Earth**")
         p2 = st.number_input("P (Dg)", value=4.44, key="p2")
-        x2 = st.number_input("X Pos", value=1.496e11, format="%.2e", key="x2")
-        vy2 = st.number_input("Y Vel", value=29780.0, key="vy2")
-    
+        x2 = st.number_input("X (m)", value=1.496e11, format="%.2e", key="x2")
+        vy2 = st.number_input("Vy (m/s)", value=29780.0, key="vy2")
     with c3:
-        st.markdown("⚪ **Core 3 (Moon)**")
+        st.markdown("⚪ **Moon**")
         p3 = st.number_input("P (Dg)", value=0.054, format="%.3f", key="p3")
-        # Auto-calc default for ease
         def_x3 = x2 + 3.844e8
         def_vy3 = vy2 + 1022.0
-        x3 = st.number_input("X Pos", value=def_x3, format="%.2e", key="x3")
-        vy3 = st.number_input("Y Vel", value=def_vy3, key="vy3")
+        x3 = st.number_input("X (m)", value=def_x3, format="%.2e", key="x3")
+        vy3 = st.number_input("Vy (m/s)", value=def_vy3, key="vy3")
 
-# --- PHYSICS ENGINE (Based on User's Python Code) ---
+# --- PHYSICS ENGINE (STRICT LOGIC) ---
 @st.cache_data(show_spinner=False)
-def run_simulation(steps, p1, p2, x2, vy2, p3, x3, vy3):
-    # Constants from user code
-    K_constant = 3.98e14 # Adjusted for scale
-    dt = 3600 # 1 Hour
+def calculate_dynamics(steps, p1, p2, x2, vy2, p3, x3, vy3):
+    # [span_1](start_span)PDF Constants[span_1](end_span)
+    K = 3.98e14
+    DT = 3600
     
-    # Arrays for 3 bodies
-    P_vals = np.array([p1, p2, p3])
-    pos = np.array([
-        [0.0, 0.0, 0.0],      # Sun
-        [x2, 0.0, 0.0],       # Earth
-        [x3, 0.0, 0.0]        # Moon
-    ], dtype=np.float64)
+    # Init Arrays
+    P = np.array([p1, p2, p3])
+    pos = np.zeros((steps, 3, 3)) # History: [Step, Body, Coord]
     
-    vel = np.array([
-        [0.0, 0.0, 0.0],      # Sun
-        [0.0, vy2, 0.0],      # Earth
-        [0.0, vy3, 0.0]       # Moon
-    ], dtype=np.float64)
+    # Initial State
+    current_pos = np.array([[0.0,0,0], [x2,0,0], [x3,0,0]], dtype=float)
+    current_vel = np.array([[0.0,0,0], [0,vy2,0], [0,vy3,0]], dtype=float)
     
-    # History Storage
-    hist_pos = np.zeros((steps, 3, 3)) # Steps, Bodies, Coords
-    hist_vel = np.zeros((steps, 3))    # Steps, Bodies (Magnitude)
-    hist_acc = np.zeros((steps, 3))    # Steps, Bodies (Magnitude)
-    
+    # MAIN LOOP
     for s in range(steps):
-        hist_pos[s] = pos
+        pos[s] = current_pos
         
-        # Calculate Accelerations
-        acc = np.zeros_like(pos)
-        
-        # Determine Handover/Parents (Logic from previous requests integrated)
-        eff_P = P_vals.copy()
+        # 1. [span_2](start_span)Handover / Assimilation[span_2](end_span)
+        # Moon(2) adopts Earth(1) friction if close
+        eff_P = P.copy()
         parents = [-1, -1, -1]
         
-        # Handover Check
-        for i in range(3):
-            for j in range(3):
-                if i == j: continue
-                if P_vals[j] > P_vals[i]:
-                    if np.linalg.norm(pos[i] - pos[j]) < 1.0e10:
-                        eff_P[i] = P_vals[j]
-                        parents[i] = j
+        # Check Earth-Moon Proximity (10 Million km limit)
+        dist_em = np.linalg.norm(current_pos[1] - current_pos[2])
+        if dist_em < 1.0e10: 
+            if P[1] > P[2]: 
+                eff_P[2] = P[1] # Moon assimilates to Earth's P
+                parents[2] = 1
 
-        # Force Loop
+        # 2. [span_3](start_span)Force Calculation (Eq 6)[span_3](end_span)
+        acc = np.zeros_like(current_pos)
+        
         for j in range(3):
-            net_pull = np.zeros(3)
+            net_force = np.zeros(3)
             for k in range(3):
                 if j == k: continue
                 
-                r_vec = pos[k] - pos[j]
-                r_mag = np.linalg.norm(r_vec)
+                r_vec = current_pos[k] - current_pos[j]
+                r_sq = np.sum(r_vec**2)
+                d = np.sqrt(r_sq)
                 
-                # --- ANADIHILO SINGULARITY RESOLUTION ---
-                # epsilon = 1.0 / (P_vals[j] + P_vals[k])
-                epsilon = 1.0 / (P_vals[j] + P_vals[k])
+                # [span_4](start_span)Epsilon (Singularity Fix)[span_4](end_span)
+                epsilon = 1.0 / (P[j] + P[k])
                 
-                # Friction Logic
-                fric = P_vals[j] if parents[j] == k else eff_P[j]
-                
-                # Formula
-                priority_mag = P_vals[k] / (r_mag**2 + epsilon)
-                net_pull += priority_mag * (r_vec / (r_mag + 1e-18))
+                # Anadihilo Force Term
+                term = P[k] / (r_sq + epsilon)
+                net_force += term * (r_vec / d)
             
-            acc[j] = (K_constant / fric) * net_pull
-        
-        # Update
-        vel += acc * dt
-        pos += vel * dt
-        
-        # Store Metrics
-        for b in range(3):
-            hist_vel[s, b] = np.linalg.norm(vel[b])
-            hist_acc[s, b] = np.linalg.norm(acc[b])
+            # [span_5](start_span)Friction Application (Handover Logic)[span_5](end_span)
+            # If j is child of k, use internal P. Else use Effective P.
+            friction = P[j] if parents[j] == k else eff_P[j]
+            acc[j] = (K / friction) * net_force
             
-    return hist_pos, hist_vel, hist_acc
+        # 3. Update
+        current_vel += acc * DT
+        current_pos += current_vel * DT
+        
+    return pos, P
 
-# --- EXECUTION ---
-if st.button("🚀 EXECUTE SCIENTIFIC TRACER", use_container_width=True):
+# --- VISUALIZATION ---
+if st.button("🚀 EXECUTE TRACER", use_container_width=True):
     
-    with st.spinner("Processing N-Body Dynamics..."):
-        h_pos, h_vel, h_acc = run_simulation(steps, p1, p2, x2, vy2, p3, x3, vy3)
+    with st.spinner("Processing Physics..."):
+        h_pos, P_vals = calculate_dynamics(steps, p1, p2, x2, vy2, p3, x3, vy3)
         
-        # Define P_vals explicitly for plotting scope (This fixes the NameError)
-        P_vals = [p1, p2, p3] 
+        # --- OPTIMIZATION (THE FIX) ---
+        # We only animate 500 frames max, regardless of steps.
+        # This prevents the browser from crashing.
+        skip_rate = max(1, steps // 400)
         
-        # Tabs
-        tab1, tab2, tab3 = st.tabs(["🌌 Interactive Animation", "📈 Scientific Analysis", "💾 Data Logs"])
+        # Animation Duration
+        frame_dur = 10 if speed == "Fast" else 30 if speed == "Normal" else 60
         
-        # --- TAB 1: COMBINED ANIMATION ---
+        tab1, tab2, tab3 = st.tabs(["🌌 Interactive Map", "📈 Static Dashboard", "💾 Data"])
+        
+        # --- TAB 1: INTERACTIVE PLOT ---
         with tab1:
-            st.write("### Combined System Trajectory (Interactive)")
-            
-            # Downsampling for smooth animation
-            skip = 10 if speed == "Normal" else 50 if speed == "Hyper" else 5
-            duration = 20
+            st.write("### N-Body System Trajectory")
             
             fig = go.Figure()
-            
             colors = ['#ffcc00', '#0099ff', '#aaaaaa']
             names = ['Sun', 'Earth', 'Moon']
-            sizes = [25, 12, 6]
             
-            # 1. Static Trails (Full Path)
+            # 1. Static Trails (Always visible, cheap to render)
             for i in range(3):
                 fig.add_trace(go.Scatter3d(
-                    x=h_pos[:, i, 0], y=h_pos[:, i, 1], z=h_pos[:, i, 2],
+                    x=h_pos[:,i,0], y=h_pos[:,i,1], z=h_pos[:,i,2],
                     mode='lines', name=f'{names[i]} Path',
                     line=dict(color=colors[i], width=3)
                 ))
             
-            # 2. Dynamic Bodies (Start Position)
+            # 2. Dynamic Markers (The moving dots)
             for i in range(3):
                 fig.add_trace(go.Scatter3d(
-                    x=[h_pos[0, i, 0]], y=[h_pos[0, i, 1]], z=[h_pos[0, i, 2]],
+                    x=[h_pos[0,i,0]], y=[h_pos[0,i,1]], z=[h_pos[0,i,2]],
                     mode='markers', name=names[i],
-                    marker=dict(color=colors[i], size=sizes[i])
+                    marker=dict(color=colors[i], size=[20, 10, 5][i])
                 ))
             
-            # 3. Frames
+            # 3. Frames (Optimized)
             frames = []
-            for k in range(0, steps, skip):
+            for k in range(0, steps, skip_rate):
                 frame_data = []
                 for i in range(3):
-                    # We only update the markers (indices 3, 4, 5 in data list)
-                    frame_data.append(go.Scatter3d(x=[h_pos[k, i, 0]], y=[h_pos[k, i, 1]], z=[h_pos[k, i, 2]]))
-                frames.append(go.Frame(data=frame_data, traces=[3, 4, 5]))
-            
+                    frame_data.append(go.Scatter3d(x=[h_pos[k,i,0]], y=[h_pos[k,i,1]], z=[h_pos[k,i,2]]))
+                frames.append(go.Frame(data=frame_data, traces=[3, 4, 5])) # Only update markers
+                
             fig.frames = frames
             
+            # Layout with Play Button separated
             fig.update_layout(
-                scene=dict(
-                    xaxis=dict(title="X", backgroundcolor="black", gridcolor="#333"),
-                    yaxis=dict(title="Y", backgroundcolor="black", gridcolor="#333"),
-                    zaxis=dict(title="Z", backgroundcolor="black", gridcolor="#333"),
-                    bgcolor="black"
-                ),
-                paper_bgcolor="black",
-                font=dict(color="white"),
-                height=650,
-                margin=dict(l=0, r=0, b=0, t=0),
-                # HIGH CONTRAST PLAY BUTTON
+                scene=dict(bgcolor="black", xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False)),
+                paper_bgcolor="black", height=600, margin=dict(l=0,r=0,b=0,t=0),
                 updatemenus=[dict(
                     type="buttons",
                     showactive=False,
-                    x=0.5, y=0.1, xanchor="center",
-                    bgcolor="white", bordercolor="#00e5ff", borderwidth=2,
-                    font=dict(color="black", size=14, family="Arial Black"),
-                    buttons=[dict(label="▶ PLAY ANIMATION", method="animate", args=[None, dict(frame=dict(duration=duration, redraw=True), fromcurrent=True)])]
+                    y=-0.1, x=0.5, xanchor="center", # MOVED DOWN
+                    pad={"t": 20}, # Added Padding
+                    buttons=[dict(label="▶ PLAY ANIMATION", method="animate", args=[None, dict(frame=dict(duration=frame_dur, redraw=True), fromcurrent=True)])]
                 )]
             )
             st.plotly_chart(fig, use_container_width=True)
-            st.info("Tip: Use mouse to Rotate/Zoom. Click 'PLAY ANIMATION' (White Button) to start.")
 
-        # --- TAB 2: SCIENTIFIC ANALYSIS (Matplotlib Recreated) ---
+        # --- TAB 2: STATIC DASHBOARD (Matplotlib) ---
         with tab2:
-            st.write("### Static Scientific Dashboard")
+            st.write("### Scientific Dashboard (Static)")
             
-            # Colors for Matplotlib
-            mpl_colors = ['#E63946', '#457B9D', '#2A9D8F']
-            mpl_names = ["Sun", "Earth", "Moon"]
+            fig_mpl, ax = plt.subplots(figsize=(10, 6))
+            fig_mpl.patch.set_facecolor('#0e1117')
+            ax.set_facecolor('#0e1117')
             
-            # 1. TRAJECTORY MAP (2D Projection)
-            st.subheader("1. Trajectory Map (2D Projection)")
-            fig1, ax1 = plt.subplots(figsize=(10, 6))
-            fig1.patch.set_facecolor('#0e1117')
-            ax1.set_facecolor('#0e1117')
-            
+            cols = ['#ffcc00', '#0099ff', '#aaaaaa']
             for i in range(3):
-                # P_vals is now correctly defined above
-                ax1.plot(h_pos[:, i, 0], h_pos[:, i, 1], color=mpl_colors[i], label=f"{mpl_names[i]} (P={P_vals[i]})", linewidth=2)
-                # Final Position Circle
-                circ = Circle((h_pos[-1, i, 0], h_pos[-1, i, 1]), radius=np.max(h_pos)*0.02, color=mpl_colors[i], alpha=0.8)
-                ax1.add_patch(circ)
-            
-            ax1.set_xlabel("X Position", color='white')
-            ax1.set_ylabel("Y Position", color='white')
-            ax1.tick_params(colors='white')
-            ax1.grid(True, ls='--', alpha=0.2)
-            ax1.legend(facecolor='#111', labelcolor='white')
-            ax1.set_aspect('equal')
-            for spine in ax1.spines.values(): spine.set_edgecolor('white')
-            st.pyplot(fig1)
-            
-            # 2. DYNAMICS (Velocity & Accel)
-            st.subheader("2. Systemic Dynamics")
-            fig2, axes = plt.subplots(2, 1, figsize=(10, 8))
-            fig2.patch.set_facecolor('#0e1117')
-            
-            t_axis = np.arange(steps)
-            
-            # Velocity Plot
-            for i in range(3):
-                axes[0].plot(t_axis, h_vel[:, i], color=mpl_colors[i], label=mpl_names[i])
-            axes[0].set_title("Velocity Profile", color='white')
-            axes[0].set_facecolor('#0e1117')
-            axes[0].tick_params(colors='white')
-            axes[0].grid(alpha=0.2)
-            axes[0].legend(facecolor='#111', labelcolor='white')
-            for spine in axes[0].spines.values(): spine.set_edgecolor('white')
-            
-            # Acceleration Plot
-            for i in range(3):
-                axes[1].plot(t_axis, h_acc[:, i], color=mpl_colors[i], label=mpl_names[i])
-            axes[1].set_title("Acceleration (Finite Peaks)", color='white')
-            axes[1].set_facecolor('#0e1117')
-            axes[1].tick_params(colors='white')
-            axes[1].grid(alpha=0.2)
-            for spine in axes[1].spines.values(): spine.set_edgecolor('white')
-            
-            st.pyplot(fig2)
+                ax.plot(h_pos[:,i,0], h_pos[:,i,1], color=cols[i], label=names[i], lw=1.5)
+                # Final pos
+                ax.plot(h_pos[-1,i,0], h_pos[-1,i,1], 'o', color=cols[i])
+                
+            ax.set_aspect('equal')
+            ax.axis('off')
+            ax.legend(facecolor='black', labelcolor='white')
+            st.pyplot(fig_mpl)
+            st.info("Top-down 2D Projection of the 3D data.")
 
-        # --- TAB 3: DATA LOGS ---
+        # --- TAB 3: DATA ---
         with tab3:
-            st.write("### Detailed Data Logs")
-            
             df = pd.DataFrame({'Step': range(steps)})
             for i, name in enumerate(names):
-                df[f'{name}_X'] = h_pos[:, i, 0]
-                df[f'{name}_Y'] = h_pos[:, i, 1]
-                df[f'{name}_Vel'] = h_vel[:, i]
-                df[f'{name}_Acc'] = h_acc[:, i]
-            
-            st.dataframe(df.head(100))
+                df[f'{name}_X'] = h_pos[:,i,0]
+                df[f'{name}_Y'] = h_pos[:,i,1]
             
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Download Full Scientific Log (CSV)",
-                data=csv,
-                file_name="anadihilo_full_scientific_log.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+            st.download_button("📥 Download Log (CSV)", csv, "anadihilo_data.csv", "text/csv")
 
 else:
-    st.info("👋 Set Parameters above and click 'EXECUTE SCIENTIFIC TRACER'")
+    st.info("Ready. Click 'EXECUTE TRACER' to calculate.")
