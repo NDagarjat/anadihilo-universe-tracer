@@ -7,7 +7,7 @@ import imageio
 import io
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Anadihilo 3D", layout="centered", page_icon="🌌")
+st.set_page_config(page_title="Anadihilo 3D Animation", layout="centered", page_icon="🌌")
 
 # Dark Mode CSS (Blogger Friendly)
 st.markdown("""
@@ -23,7 +23,6 @@ st.markdown("""
         background-color: #00e5ff; 
         color: #000; 
     }
-    /* Hide Streamlit Header for Clean Look */
     header {visibility: hidden;}
     footer {visibility: hidden;}
     .block-container {padding-top: 1rem;}
@@ -33,13 +32,11 @@ st.markdown("""
 st.title("🌌 Anadihilo Universe Tracer")
 st.caption("Deterministic Handover Resolution (Sun-Earth-Moon)")
 
-# --- MAIN PAGE INPUTS (EXPANDER) ---
-# Sidebar hatakar 'Expander' lagaya hai taaki Iframe mein saaf dikhe
+# --- INPUTS (EXPANDER) ---
 with st.expander("⚙️ Configure Coordinates & Physics (Click to Open)", expanded=True):
-    
     col_set1, col_set2 = st.columns(2)
     with col_set1:
-        steps = st.slider("Simulation Duration (Steps)", 1000, 30000, 10000)
+        steps = st.slider("Simulation Duration (Steps)", 1000, 20000, 10000)
     with col_set2:
         K_val = st.number_input("Universal Constant (K)", value=3.98e14, format="%.2e")
         dt = 3600 # 1 Hour fixed
@@ -49,23 +46,22 @@ with st.expander("⚙️ Configure Coordinates & Physics (Click to Open)", expan
     # Body 1: Sun
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown("🟡 **Sun (Anchor)**")
+        st.markdown("🟡 **Sun**")
         p1 = st.number_input("P (Dg)", value=1480000.0, key="p1")
         x1 = st.number_input("X", value=0.0, key="x1")
         vy1 = st.number_input("Vy", value=0.0, key="vy1")
 
     # Body 2: Earth
     with c2:
-        st.markdown("🔵 **Earth (Parent)**")
+        st.markdown("🔵 **Earth**")
         p2 = st.number_input("P (Dg)", value=4.44, key="p2")
         x2 = st.number_input("X", value=1.496e11, format="%.2e", key="x2")
         vy2 = st.number_input("Vy", value=29780.0, key="vy2")
 
     # Body 3: Moon
     with c3:
-        st.markdown("⚪ **Moon (Child)**")
+        st.markdown("⚪ **Moon**")
         p3 = st.number_input("P (Dg)", value=0.054, format="%.3f", key="p3")
-        # Default Moon relative to Earth
         def_x3 = x2 + 3.844e8 
         def_vy3 = vy2 + 1022.0
         x3 = st.number_input("X", value=def_x3, format="%.2e", key="x3")
@@ -73,7 +69,6 @@ with st.expander("⚙️ Configure Coordinates & Physics (Click to Open)", expan
 
 # --- PHYSICS ENGINE ---
 def calculate_physics():
-    # Init Bodies
     bodies = [
         {'name': 'Sun', 'P': p1, 'p': np.array([x1, 0.0, 0.0]), 'v': np.array([0.0, vy1, 0.0]), 'hist': []},
         {'name': 'Earth', 'P': p2, 'p': np.array([x2, 0.0, 0.0]), 'v': np.array([0.0, vy2, 0.0]), 'hist': []},
@@ -84,20 +79,18 @@ def calculate_physics():
     progress = st.progress(0)
     
     for s in range(steps):
-        # 1. Handover Logic
+        # Handover Logic
         eff_P = [b['P'] for b in bodies]
         parents = [-1] * 3
-        
         for i in range(3):
             for j in range(3):
                 if i == j: continue
                 if bodies[j]['P'] > bodies[i]['P']:
-                    # 10 Million km assimilation zone
                     if np.linalg.norm(bodies[i]['p'] - bodies[j]['p']) < 1.0e10:
                         eff_P[i] = bodies[j]['P']
                         parents[i] = j
         
-        # 2. Forces
+        # Forces
         accs = []
         for j in range(3):
             a = np.zeros(3)
@@ -106,17 +99,17 @@ def calculate_physics():
                 r = bodies[k]['p'] - bodies[j]['p']
                 d = np.linalg.norm(r)
                 if d == 0: continue
-                
                 fric = bodies[j]['P'] if parents[j] == k else eff_P[j]
                 force = (K_val / fric) * (bodies[k]['P'] / (d**2 + (EPSILON/(bodies[j]['P']+bodies[k]['P']))))
                 a += force * (r/d)
             accs.append(a)
             
-        # 3. Update
+        # Update
         for idx, b in enumerate(bodies):
             b['v'] += accs[idx] * dt
             b['p'] += b['v'] * dt
-            if s % 10 == 0: 
+            # Log Data
+            if s % 20 == 0: # Optimize memory
                 b['hist'].append(b['p'].copy())
         
         if s % (steps//10) == 0:
@@ -126,38 +119,83 @@ def calculate_physics():
     return bodies
 
 # --- EXECUTION ---
-if st.button("🚀 EXECUTE SIMULATION"):
+if st.button("🚀 EXECUTE & ANIMATE"):
     data = calculate_physics()
     
-    # Dual View Tabs
-    tab1, tab2, tab3 = st.tabs(["🌌 Macro View", "🌑 Micro View", "📊 Data/GIF"])
+    tab1, tab2, tab3 = st.tabs(["🌌 Macro Animation", "🌑 Micro Animation", "📊 Data/GIF"])
     
+    # 1. MACRO ANIMATION (Sun-Earth)
     with tab1:
-        st.write("**System Overview (Sun-Earth Scale)**")
-        fig1 = go.Figure()
-        cols = ['#ffcc00', '#0099ff', '#aaaaaa']
-        for i, b in enumerate(data):
-            h = np.array(b['hist'])
-            fig1.add_trace(go.Scatter3d(x=h[:,0], y=h[:,1], z=h[:,2], mode='lines', name=b['name'], line=dict(color=cols[i], width=3)))
-            fig1.add_trace(go.Scatter3d(x=[h[-1,0]], y=[h[-1,1]], z=[h[-1,2]], mode='markers', marker=dict(size=5, color=cols[i]), showlegend=False))
+        st.write("**Solar System Scale (Click Play ▶️)**")
         
-        fig1.update_layout(scene=dict(bgcolor="black"), margin=dict(l=0, r=0, b=0, t=0), height=500, paper_bgcolor="black", font=dict(color="white"))
+        # Downsample for smooth animation
+        anim_step = max(1, len(data[0]['hist']) // 100)
+        
+        # Create Frames
+        frames = []
+        for k in range(0, len(data[0]['hist']), anim_step):
+            frame_data = []
+            for i, b in enumerate(data):
+                h = b['hist'][k]
+                frame_data.append(go.Scatter3d(x=[h[0]], y=[h[1]], z=[h[2]], mode='markers', marker=dict(color=['#ffcc00', '#0099ff', '#aaaaaa'][i], size=8)))
+            frames.append(go.Frame(data=frame_data, name=str(k)))
+
+        # Base Figure
+        fig1 = go.Figure(
+            data=[
+                # Full Paths (Static Lines)
+                go.Scatter3d(x=[p[0] for p in data[0]['hist']], y=[p[1] for p in data[0]['hist']], z=[p[2] for p in data[0]['hist']], mode='lines', line=dict(color='#ffcc00', width=2), name='Sun Path'),
+                go.Scatter3d(x=[p[0] for p in data[1]['hist']], y=[p[1] for p in data[1]['hist']], z=[p[2] for p in data[1]['hist']], mode='lines', line=dict(color='#0099ff', width=2), name='Earth Path'),
+                go.Scatter3d(x=[p[0] for p in data[2]['hist']], y=[p[1] for p in data[2]['hist']], z=[p[2] for p in data[2]['hist']], mode='lines', line=dict(color='#aaaaaa', width=2), name='Moon Path'),
+                # Initial Markers (will be animated)
+                go.Scatter3d(x=[data[0]['hist'][0][0]], y=[data[0]['hist'][0][1]], z=[data[0]['hist'][0][2]], mode='markers', marker=dict(color='#ffcc00', size=8), name='Sun'),
+                go.Scatter3d(x=[data[1]['hist'][0][0]], y=[data[1]['hist'][0][1]], z=[data[1]['hist'][0][2]], mode='markers', marker=dict(color='#0099ff', size=8), name='Earth'),
+                go.Scatter3d(x=[data[2]['hist'][0][0]], y=[data[2]['hist'][0][1]], z=[data[2]['hist'][0][2]], mode='markers', marker=dict(color='#aaaaaa', size=8), name='Moon'),
+            ],
+            layout=go.Layout(
+                scene=dict(bgcolor="black"),
+                updatemenus=[dict(type="buttons", buttons=[dict(label="▶️ Play", method="animate", args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True)])])],
+                height=500, paper_bgcolor="black", font=dict(color="white")
+            ),
+            frames=frames
+        )
         st.plotly_chart(fig1, use_container_width=True)
 
+    # 2. MICRO ANIMATION (Moon Relative)
     with tab2:
-        st.write("**Moon Orbit (Relative to Earth)**")
-        fig2 = go.Figure()
-        # Earth Center
-        fig2.add_trace(go.Scatter3d(x=[0], y=[0], z=[0], mode='markers', name='Earth', marker=dict(size=15, color='blue')))
-        # Moon Relative
+        st.write("**Moon Orbit Relative to Earth (Click Play ▶️)**")
+        
+        # Calculate Relative Paths
         h_e = np.array(data[1]['hist'])
         h_m = np.array(data[2]['hist'])
         rel = h_m - h_e
-        fig2.add_trace(go.Scatter3d(x=rel[:,0], y=rel[:,1], z=rel[:,2], mode='lines', name='Moon Path', line=dict(color='white', width=4)))
         
-        fig2.update_layout(scene=dict(bgcolor="black"), margin=dict(l=0, r=0, b=0, t=0), height=500, paper_bgcolor="black", font=dict(color="white"))
+        # Frames
+        frames_micro = []
+        for k in range(0, len(rel), anim_step):
+            frames_micro.append(go.Frame(data=[
+                go.Scatter3d(x=[rel[k,0]], y=[rel[k,1]], z=[rel[k,2]], mode='markers', marker=dict(color='white', size=8))
+            ]))
+
+        fig2 = go.Figure(
+            data=[
+                # Earth Center
+                go.Scatter3d(x=[0], y=[0], z=[0], mode='markers', marker=dict(size=15, color='blue'), name='Earth'),
+                # Moon Path
+                go.Scatter3d(x=rel[:,0], y=rel[:,1], z=rel[:,2], mode='lines', line=dict(color='white', width=4), name='Orbit'),
+                # Moon Marker (Animated)
+                go.Scatter3d(x=[rel[0,0]], y=[rel[0,1]], z=[rel[0,2]], mode='markers', marker=dict(color='white', size=8), name='Moon')
+            ],
+            layout=go.Layout(
+                scene=dict(bgcolor="black"),
+                updatemenus=[dict(type="buttons", buttons=[dict(label="▶️ Play", method="animate", args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True)])])],
+                height=500, paper_bgcolor="black", font=dict(color="white")
+            ),
+            frames=frames_micro
+        )
         st.plotly_chart(fig2, use_container_width=True)
 
+    # 3. DATA & GIF
     with tab3:
         # CSV
         df = pd.DataFrame({'Step': range(len(data[0]['hist']))})
@@ -169,22 +207,44 @@ if st.button("🚀 EXECUTE SIMULATION"):
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download CSV", csv, "anadihilo_data.csv", "text/csv")
         
-        # GIF
-        if st.button("🎬 Generate GIF"):
-            st.info("Generating Animation...")
-            frames = []
-            step_sz = max(1, len(rel)//50)
-            for i in range(0, len(rel), step_sz):
-                f, ax = plt.subplots(figsize=(4,4))
-                f.patch.set_facecolor('black')
-                ax.set_facecolor('black')
-                ax.plot(rel[:i,0], rel[:i,1], color='white')
-                ax.plot(0,0, 'o', color='blue')
-                ax.axis('off')
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png', bbox_inches='tight')
-                plt.close(f)
-                buf.seek(0)
-                frames.append(imageio.v3.imread(buf))
-            imageio.mimsave("orbit.gif", frames, fps=12, loop=0)
-            st.image("orbit.gif")
+        # GIF Creator (FIXED)
+        st.divider()
+        st.write("🎬 **Generate GIF**")
+        if st.button("Create GIF (Takes ~15s)"):
+            with st.spinner("Generating Animation Frames..."):
+                # Use Agg backend for server stability
+                plt.switch_backend('Agg') 
+                
+                frames = []
+                # Use fewer frames for GIF to prevent timeout
+                gif_step = max(1, len(rel)//60) 
+                
+                for i in range(0, len(rel), gif_step):
+                    f, ax = plt.subplots(figsize=(4,4), facecolor='black')
+                    ax.set_facecolor('black')
+                    # Plot Path
+                    ax.plot(rel[:i,0], rel[:i,1], color='white', lw=1)
+                    # Plot Earth
+                    ax.plot(0,0, 'o', color='blue', ms=8)
+                    # Plot Moon Current Pos
+                    if i > 0:
+                        ax.plot(rel[i-1,0], rel[i-1,1], 'o', color='gray', ms=5)
+                    
+                    ax.axis('equal')
+                    ax.axis('off')
+                    
+                    # Save to buffer
+                    buf = io.BytesIO()
+                    plt.savefig(buf, format='png', bbox_inches='tight', dpi=80)
+                    plt.close(f)
+                    buf.seek(0)
+                    frames.append(imageio.v3.imread(buf))
+                
+                # Save GIF
+                imageio.mimsave("orbit.gif", frames, fps=10, loop=0)
+                
+                # Show & Download
+                st.success("GIF Created!")
+                st.image("orbit.gif")
+                with open("orbit.gif", "rb") as file:
+                    st.download_button("⬇️ Download GIF", file, "orbit.gif", "image/gif")
